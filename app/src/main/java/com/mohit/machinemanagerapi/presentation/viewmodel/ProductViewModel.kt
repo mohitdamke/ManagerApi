@@ -18,12 +18,6 @@ class ProductViewModel @Inject constructor(
     private val repository: ProductRepository
 ) : ViewModel() {
 
-    private val limit = 10
-    private var skip = 0
-    private var total = 0
-
-    private var searchJob: Job? = null
-
     private val _products = MutableStateFlow<List<Product>>(emptyList())
     val products = _products.asStateFlow()
 
@@ -52,10 +46,47 @@ class ProductViewModel @Inject constructor(
     private val _isError = MutableStateFlow("")
     val isError = _isError.asStateFlow()
 
+    private val limit = 10
+    private var skip = 0
+    private var total = 0
     private var hasMore = true
+    private var searchJob: Job? = null
 
     init {
         loadProducts()
+    }
+
+    // Decide which API to call
+    private suspend fun fetchProducts(offset: Int): ProductPage {
+        val query = _searchQuery.value.trim()
+        val category = _selectedCategory.value
+        val order = _sortOrder.value
+        val sortBy = if (order != null) "price" else null
+
+        return when {
+            query.isNotEmpty() -> repository.searchProducts(
+                query = query,
+                limit = limit,
+                skip = offset,
+                sortBy = sortBy,
+                order = order
+            )
+
+            category != "All" -> repository.getProductsByCategory(
+                category = category,
+                limit = limit,
+                skip = offset,
+                sortBy = sortBy,
+                order = order
+            )
+
+            else -> repository.getProducts(
+                limit = limit,
+                skip = offset,
+                sortBy = sortBy,
+                order = order
+            )
+        }
     }
 
     // Load products using current search, category and sort options
@@ -104,6 +135,25 @@ class ProductViewModel @Inject constructor(
         loadProducts()
     }
 
+    // Load details of one product
+    fun getProductById(id: Int) {
+        viewModelScope.launch {
+            _isDetailsLoading.value = true
+            _isError.value = ""
+            _selectedProduct.value = null
+
+            try {
+                _selectedProduct.value = repository.getProductById(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _isError.value = e.message ?: "Something went wrong"
+            } finally {
+                _isDetailsLoading.value = false
+            }
+        }
+    }
+
     // Load the next page
     fun loadMoreProducts() {
         if (_isLoading.value || _isLoadingMore.value || !hasMore) return
@@ -126,58 +176,6 @@ class ProductViewModel @Inject constructor(
                 _isError.value = e.message ?: "Something went wrong"
             } finally {
                 _isLoadingMore.value = false
-            }
-        }
-    }
-
-    // Decide which API to call
-    private suspend fun fetchProducts(offset: Int): ProductPage {
-        val query = _searchQuery.value.trim()
-        val category = _selectedCategory.value
-        val order = _sortOrder.value
-        val sortBy = if (order != null) "price" else null
-
-        return when {
-            query.isNotEmpty() -> repository.searchProducts(
-                query = query,
-                limit = limit,
-                skip = offset,
-                sortBy = sortBy,
-                order = order
-            )
-
-            category != "All" -> repository.getProductsByCategory(
-                category = category,
-                limit = limit,
-                skip = offset,
-                sortBy = sortBy,
-                order = order
-            )
-
-            else -> repository.getProducts(
-                limit = limit,
-                skip = offset,
-                sortBy = sortBy,
-                order = order
-            )
-        }
-    }
-
-    // Load details of one product
-    fun getProductById(id: Int) {
-        viewModelScope.launch {
-            _isDetailsLoading.value = true
-            _isError.value = ""
-            _selectedProduct.value = null
-
-            try {
-                _selectedProduct.value = repository.getProductById(id)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _isError.value = e.message ?: "Something went wrong"
-            } finally {
-                _isDetailsLoading.value = false
             }
         }
     }
